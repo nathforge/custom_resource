@@ -9,12 +9,9 @@ AWS docs:
 
 import abc
 import json
-import traceback
 
 import jsonschema
 import requests
-
-from expect_status_code import expect_status_code
 
 SUCCESS = "SUCCESS"
 FAILED = "FAILED"
@@ -24,6 +21,7 @@ UPDATE = "Update"
 DELETE = "Delete"
 
 MAX_PHYSICAL_RESOURCE_ID_LENGTH = 1024
+DEFAULT_PHYSICAL_RESOURCE_ID = "n/a"
 
 class BaseHandler(object):
     """
@@ -35,17 +33,10 @@ class BaseHandler(object):
     # Optional JSON Schema to validate "ResourceProperties" and
     # "OldResourceProperties".
     # The schema should include {"ServiceToken": {"type": "string"}} in the
-    # root properties, as this is always sent by cloudFormation.
+    # root properties, as this is always sent by CloudFormation.
     RESOURCE_PROPERTIES_SCHEMA = None
 
-    def __init__(self, debug=False):
-        """
-        Arguments:
-            * `debug`: boolean. If True, includes full traceback on failure.
-        """
-
-        self.debug = debug
-
+    def __init__(self):
         self._event_type_handlers = {
             "Create": self.create,
             "Update": self.update,
@@ -94,53 +85,74 @@ class BaseHandler(object):
     def __call__(self, event, context):
         """
         Lambda handler. Calls create, update or delete, sends the result back
-        to CloudFormation.
+        to CloudFormation if not deferred.
         """
 
-        with Responder(event, self.debug) as responder:
-            result = self.dispatch(event, context)
-            if result is not Defer and not isinstance(result, Defer):
-                responder.respond(result)
+        with Responder(event) as responder:
+            response = self._get_response(event, context)
+            responder.respond(response)
 
-    def dispatch(self, event, context):
+    def _get_response(self, event, context):
         """
         Dispatch the given event to create, update or delete, depending on the
-        "RequestType" value. Returns the result, doesn't send it to
-        CloudFormation.
+        "RequestType" value. Validates event properties against
+        `RESOURCE_PROPERTIES_SCHEMA` if present.
+
+        Returned values can be:
+            * A string representing a PhysicalResourceId.
+            * A tuple of (PhysicalResourceId, Data)
+            * A Success, Failed or Defer object.
+
+        Returns the result as a Success, Failed or Defer object.
         """
 
-        if self.RESOURCE_PROPERTIES_SCHEMA:
+        if self.RESOURCE_PROPERTIES_SCHEMA is not None:
             validator = jsonschema.Draft4Validator(self.RESOURCE_PROPERTIES_SCHEMA)
-            for key in "ResourceProperties", "OldResourceProperties":
-                if key in event:
-                    validator.validate(event[key])
+            try:
+                for key in "ResourceProperties", "OldResourceProperties":
+                    if key in event:
+                        validator.validate(event[key])
+            except jsonschema.ValidationError as exc:
+                physical_resource_id = event.get("PhysicalResourceId", DEFAULT_PHYSICAL_RESOURCE_ID)
+                return Failed(physical_resource_id, reason=unicode(exc))
 
         event_type_handler = self._event_type_handlers[event["RequestType"]]
-        return event_type_handler(event, context)
+        result = event_type_handler(event, context)
+        response = self._coerce_to_response(result)
+        return response
+
+    def _coerce_to_response(self, value):
+        if isinstance(value, basestring):
+            physical_resource_id = value
+            return Success(physical_resource_id)
+
+        if isinstance(value, tuple) and len(value) == 2:
+            physical_resource_id, data = value
+            return Success(physical_resource_id, data)
+
+        if isinstance(value, (Success, Failed, Defer)):
+            return value
+
+        if value is None:
+            raise TypeError("No response returned")
+
+        raise TypeError("Unexpected response {!r}".format(value))
 
 class Responder(object):
     """
-    Respond to a custom resource request. Takes the Lambda event object and
-    an optional debug flag. If debug=True, shows full traceback upon exception.
+    Respond to a custom resource request. Takes the Lambda event object.
 
     Can be used as a context manager to catch exceptions and send a failure
     response.
-
-    Responses can be:
-        * A string representing a PhysicalResourceId.
-        * A tuple of (PhysicalResourceId, Data)
-        * A Success or Failed object.
     """
 
-    def __init__(self, event, debug=False):
+    def __init__(self, event):
         """
         Arguments:
             * `event`: a Lambda event object.
-            * `debug`: boolean. If True, includes full traceback on failure.
         """
 
         self.event = event
-        self.debug = debug
         self.responded = False
 
     def success(self, *args, **kwargs):
@@ -155,16 +167,23 @@ class Responder(object):
         Send a "FAILED" response to CloudFormation.
         """
 
-        self.response(Failed(*args, **kwargs))
+        self.respond(Failed(*args, **kwargs))
+
+    def defer(self):
+        """
+        Defer the response.
+        """
+
+        self.respond(Defer())
 
     def respond(self, response):
         """
-        Send a response to CloudFormation by uploading to the given S3 URL.
+        Respond to CloudFormation by uploading JSON data to the given S3 URL.
         """
 
         self.responded = True
 
-        if result is Defer or isinstance(result, Defer):
+        if isinstance(response, Defer):
             return
 
         response_dict = self._get_response_as_dict(response)
@@ -182,56 +201,32 @@ class Responder(object):
         Context manager to send "FAILED" responses upon exception.
         """
 
-        # Physical resource ID is always required, even on failure.
-        # We'll take the previous ID if available, else use "n/a"
-        physical_resource_id = self.event.get("PhysicalResourceId", "n/a")
-
-        if not exc:
-            if not self.responded:
-                self.respond(Failed(physical_resource_id, "No response sent"))
-
+        physical_resource_id = self.event.get("PhysicalResourceId", DEFAULT_PHYSICAL_RESOURCE_ID)
         if exc:
-            if self.debug:
-                reason = traceback.format_exc()
-            else:
-                reason = unicode(value)
-
-            self.respond(Failed(physical_resource_id, reason))
+            self.respond(Failed(physical_resource_id, reason=unicode(exc)))
+        else:
+            if not self.responded:
+                self.respond(Failed(physical_resource_id, reason="No response sent"))
 
     def _get_response_as_dict(self, response):
         """
-        Given a response (see Responder docstring), return a dict that can
-        be sent to CloudFormation. Includes the source event's StackId,
-        RequestId and LogicalResourceId.
+        Given a response, return a dict that can be sent to CloudFormation.
+        Includes the source event's StackId, RequestId and LogicalResourceId.
         """
 
-        response_dict = self._coerce_response_to_dict(response)
+        response_dict = response.as_dict()
         response_dict.update({
             key: self.event[key]
             for key in ("StackId", "RequestId", "LogicalResourceId")
         })
         return response_dict
 
-    def _coerce_response_to_dict(self, response):
-        """
-        Given a response (see Responder docstring), return a dict.
-        """
-
-        if isinstance(response, basestring):
-            physical_resource_id = response
-            return Success(physical_resource_id).as_dict()
-
-        if isinstance(response, tuple) and len(response) == 2:
-            physical_resource_id, data = response
-            return Success(physical_resource_id, data).as_dict()
-
-        if isinstance(response, (Success, Failed)):
-            return response.as_dict()
-
-        raise TypeError("Unexpected response {!r}".format(response))
-
     def _upload_response_data(self, url, data):
-        expect_status_code(200, requests.put(url, data=data))
+        response = requests.put(url, data=data)
+        if response.status_code != 200:
+            raise Exception("Expected HTTP 200, but received {} from {}".format(
+                response.status_code, response.url
+            ))
 
 class Success(object):
     """
@@ -242,8 +237,10 @@ class Success(object):
     """
 
     def __init__(self, physical_resource_id, data={}):
-        if not isinstance(physical_resource_id, basestring) or not 1 <= len(physical_resource_id) <= 1024:
-            raise TypeError("physical_resource_id must be a string between 1 and 1024 characters")
+        if not isinstance(physical_resource_id, basestring) or not 1 <= len(physical_resource_id) <= MAX_PHYSICAL_RESOURCE_ID_LENGTH:
+            raise TypeError("physical_resource_id must be a string between 1 and {} characters".format(
+                MAX_PHYSICAL_RESOURCE_ID_LENGTH
+            ))
 
         if not isinstance(data, dict):
             raise TypeError("data must be a dict")
@@ -262,6 +259,9 @@ class Success(object):
             "Data": self._data
         }
 
+    def __repr__(self):
+        return "Success({!r}, {!r})".format(self._physical_resource_id, self._data)
+
 class Failed(object):
     """
     Failed response. Takes the physical resource ID, and the reason for failure
@@ -278,7 +278,9 @@ class Failed(object):
 
     def __init__(self, physical_resource_id, reason):
         if not isinstance(physical_resource_id, basestring) or not 1 <= len(physical_resource_id) <= MAX_PHYSICAL_RESOURCE_ID_LENGTH:
-            raise TypeError("physical_resource_id must be a string between 1 and {} characters".format(MAX_PHYSICAL_RESOURCE_ID_LENGTH))
+            raise TypeError("physical_resource_id must be a string between 1 and {} characters".format(
+                MAX_PHYSICAL_RESOURCE_ID_LENGTH
+            ))
 
         if not isinstance(reason, basestring):
             raise TypeError("reason must be a unicode object")
@@ -293,6 +295,9 @@ class Failed(object):
             "Reason": self._reason
         }
 
+    def __repr__(self):
+        return "Failed({!r}, {!r})".format(self._physical_resource_id, self._reason)
+
 class Defer(object):
     """
     A deferred response. Represents to Handler that you're working
@@ -304,3 +309,6 @@ class Defer(object):
         Responder(event).success(physical_resource_id="123", data={"other": "data"})
         Responder(event).failed(physical_resource_id="n/a", reason="Oh no")
     """
+
+    def __repr__(self):
+        return "Defer()"

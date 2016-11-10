@@ -16,6 +16,8 @@ setup(
     author_email="email@nreynolds.co.uk",
     packages=["custom_resource"],
     package_dir={"": os.path.join(ROOT, "src")},
+    test_suite="tests",
+    tests_require=["mock"],
     classifiers=[
         "Development Status :: 4 - Beta",
         "Intended Audience :: Developers",
