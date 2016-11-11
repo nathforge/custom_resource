@@ -1,0 +1,45 @@
+#!/usr/bin/env python
+
+import argparse
+import os.path
+import re
+import shutil
+import subprocess
+import tempfile
+import zipfile
+
+import boto3
+import botocore
+
+DEFAULT_RESOURCE_STACK = "S3ObjectResource"
+DEFAULT_CONSUMER_STACK = "S3ObjectConsumer"
+DEFAULT_REGION = "us-east-1"
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--resource-stack", default=DEFAULT_RESOURCE_STACK)
+    parser.add_argument("--consumer-stack", default=DEFAULT_CONSUMER_STACK)
+    parser.add_argument("--region", default=DEFAULT_REGION)
+    args = parser.parse_args()
+
+    resource_stack = args.resource_stack
+    consumer_stack = args.consumer_stack
+    region = args.region
+
+    print "Deleting CloudFormation consumer stack {} in {}".format(consumer_stack, region)
+    cloudformation_delete(consumer_stack, region)
+
+    print "Deleting CloudFormation resource stack {} from {}".format(resource_stack, region)
+    cloudformation_delete(resource_stack, region)
+
+def cloudformation_delete(stack, region):
+    """
+    Delete a CloudFormation stack and wait for completion.
+    """
+
+    client = boto3.client("cloudformation", region_name=region)
+    client.delete_stack(StackName=stack)
+    client.get_waiter("stack_delete_complete").wait(StackName=stack)
+
+if __name__ == "__main__":
+    main()

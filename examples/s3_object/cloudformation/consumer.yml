@@ -1,0 +1,32 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+
+Outputs:
+  WebsiteURL:
+    Value: !GetAtt S3Bucket.WebsiteURL
+
+Resources:
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      WebsiteConfiguration:
+        IndexDocument: index.html
+
+  S3Object:
+    Type: Custom::S3Object
+    Version: 1.0
+    Properties:
+      ServiceToken: !ImportValue S3ObjectCustomResource
+      Bucket: !Ref S3Bucket
+      Key: index.html
+      ContentType: text/html
+      Body: |
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>Example</title>
+          </head>
+          <body>
+            This file bought to you by examples/s3_object.
+          </body>
+        </html>

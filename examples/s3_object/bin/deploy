@@ -1,0 +1,122 @@
+#!/usr/bin/env python
+
+import argparse
+import os.path
+import re
+import shutil
+import subprocess
+import tempfile
+import zipfile
+
+import boto3
+import botocore
+
+DEFAULT_RESOURCE_STACK = "S3ObjectResource"
+DEFAULT_CONSUMER_STACK = "S3ObjectConsumer"
+DEFAULT_REGION = "us-east-1"
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--resource-stack", default=DEFAULT_RESOURCE_STACK)
+    parser.add_argument("--consumer-stack", default=DEFAULT_CONSUMER_STACK)
+    parser.add_argument("--region", default=DEFAULT_REGION)
+    args = parser.parse_args()
+
+    resource_stack = args.resource_stack
+    consumer_stack = args.consumer_stack
+    region = args.region
+
+    print "Creating/updating CloudFormation resource stack {} in {}".format(resource_stack, region)
+    with open(os.path.join(os.path.dirname(__file__), "../cloudformation/resource.yml")) as fp:
+        cloudformation_create_or_update(resource_stack, region, fp.read())
+
+    print "Fetching CloudFormation resource outputs"
+    resource_outputs = cloudformation_outputs(resource_stack, region)
+
+    print "Uploading Lambda resource function"
+    lambda_upload(resource_outputs["LambdaFunctionArn"], os.path.join(os.path.dirname(__file__), "../src"), region)
+
+    print "Creating/updating CloudFormation consumer stack {} in {}".format(resource_stack, region)
+    with open(os.path.join(os.path.dirname(__file__), "../cloudformation/consumer.yml")) as fp:
+        cloudformation_create_or_update(consumer_stack, region, fp.read())
+
+    print "Fetching CloudFormation consumer outputs"
+    consumer_outputs = cloudformation_outputs(consumer_stack, region)
+
+    print "=" * 79
+    print
+    print "Done: website uploaded to {}".format(consumer_outputs["WebsiteURL"])
+    print "Use bin/destroy to remove it."
+
+def cloudformation_create_or_update(stack, region, template):
+    """
+    Create/update a CloudFormation stack and wait for completion.
+    """
+
+    client = boto3.client("cloudformation", region_name=region)
+    try:
+        client.update_stack(StackName=stack, Capabilities=["CAPABILITY_IAM"], TemplateBody=template)
+    except botocore.exceptions.ClientError as exc:
+        if "No updates are to be performed" in exc.message:
+            pass
+        elif "does not exist" in exc.message:
+            client.create_stack(StackName=stack, Capabilities=["CAPABILITY_IAM"], TemplateBody=template)
+            client.get_waiter("stack_create_complete").wait(StackName=stack)
+        else:
+            raise
+    else:
+        client.get_waiter("stack_update_complete").wait(StackName=stack)
+
+def cloudformation_outputs(stack, region):
+    """
+    Return CloudFormation outputs as a dict.
+    """
+
+    client = boto3.client("cloudformation", region_name=region)
+    result = client.describe_stacks(StackName=stack)
+    return {
+        output["OutputKey"]: output["OutputValue"]
+        for output in result["Stacks"][0].get("Outputs", [])
+    }
+
+def lambda_upload(arn, src, region):
+    name = re.search(r"[^:]+$", arn).group()
+
+    try:
+        dst = tempfile.mkdtemp()
+
+        # Copy src to dst
+        for basename in os.listdir(src):
+            src_filename = os.path.join(src, basename)
+            dst_filename = os.path.join(dst, basename)
+            if os.path.isdir(src_filename):
+                shutil.copytree(src_filename, dst_filename)
+            else:
+                shutil.copy2(src_filename, dst_filename)
+
+        # Install requirements
+        command = [
+            "pip", "install",
+            "--target", dst,
+            os.path.join(src, "../../..")
+        ]
+        subprocess.check_call(command)
+
+        # Create a zip file
+        with tempfile.NamedTemporaryFile() as fp:
+            with zipfile.ZipFile(fp, "w", compression=zipfile.ZIP_DEFLATED) as zfp:
+                for path, _, basenames in os.walk(dst):
+                    path = os.path.relpath(path, dst)
+                    for basename in basenames:
+                        zip_info = zipfile.ZipInfo()
+                        zfp.write(os.path.join(dst, path, basename), os.path.join(path, basename))
+
+            # Upload the function
+            client = boto3.client("lambda", region_name=region)
+            fp.seek(0)
+            client.update_function_code(FunctionName=name, ZipFile=fp.read(), Publish=True)
+    finally:
+        shutil.rmtree(dst)
+
+if __name__ == "__main__":
+    main()
