@@ -16,6 +16,12 @@ setup(
     author_email="email@nreynolds.co.uk",
     packages=["custom_resource"],
     package_dir={"": os.path.join(ROOT, "src")},
+    install_requires=[
+        line.strip()
+        for line in open(os.path.join(ROOT, "requirements.txt"))
+        if not line.startswith("#")
+        and line.strip() != ""
+    ],
     test_suite="tests",
     tests_require=["mock"],
     classifiers=[
