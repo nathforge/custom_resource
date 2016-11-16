@@ -7,7 +7,7 @@ from setuptools import setup
 ROOT = os.path.dirname(__file__)
 
 setup(
-    version="0.1.5",
+    version="0.1.6",
     url="https://github.com/nathforge/custom_resource",
     name="custom_resource",
     description="Helps you implement custom CloudFormation resources via Python Lambda functions.",
