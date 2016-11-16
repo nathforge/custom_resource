@@ -26,7 +26,6 @@ class TestCase(unittest.TestCase):
             "b": "2"
         })
 
-        responder._upload_response_data.assert_called_once()
         (_, (url, data), kwargs), = responder._upload_response_data.mock_calls
         self.assertEqual(url, "http://response")
         self.assertEqual(json.loads(data), {
@@ -52,7 +51,6 @@ class TestCase(unittest.TestCase):
         responder = Responder(event)
         responder.failed(physical_resource_id="123", reason="It broke")
 
-        responder._upload_response_data.assert_called_once()
         (_, (url, data), kwargs), = responder._upload_response_data.mock_calls
         self.assertEqual(url, "http://response")
         self.assertEqual(json.loads(data), {
@@ -87,7 +85,6 @@ class TestCase(unittest.TestCase):
         with Responder(event) as responder:
             pass
 
-        responder._upload_response_data.assert_called_once()
         (_, (url, data), kwargs), = responder._upload_response_data.mock_calls
         self.assertEqual(url, "http://response")
         self.assertEqual(json.loads(data), {
@@ -111,7 +108,6 @@ class TestCase(unittest.TestCase):
             with Responder(event) as responder:
                 raise Exception("Something happened")
 
-        responder._upload_response_data.assert_called_once()
         (_, (url, data), kwargs), = responder._upload_response_data.mock_calls
         self.assertEqual(url, "http://response")
         self.assertEqual(json.loads(data), {
@@ -135,7 +131,6 @@ class TestCase(unittest.TestCase):
         with Responder(event) as responder:
             pass
 
-        responder._upload_response_data.assert_called_once()
         (_, (url, data), kwargs), = responder._upload_response_data.mock_calls
         self.assertEqual(url, "http://response")
         self.assertEqual(json.loads(data), {
@@ -160,7 +155,6 @@ class TestCase(unittest.TestCase):
             with Responder(event) as responder:
                 raise Exception("Something happened")
 
-        responder._upload_response_data.assert_called_once()
         (_, (url, data), kwargs), = responder._upload_response_data.mock_calls
         self.assertEqual(url, "http://response")
         self.assertEqual(json.loads(data), {
