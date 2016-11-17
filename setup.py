@@ -1,24 +1,28 @@
 #!/usr/bin/env python
 
+import os
 import os.path
-
+import sys
 from setuptools import setup
 
-ROOT = os.path.dirname(__file__)
+os.chdir(os.path.abspath(os.path.dirname(__file__)))
+sys.path.insert(0, "src")
+
+import custom_resource
 
 setup(
-    version="0.1.7",
+    version=custom_resource.__version__,
     url="https://github.com/nathforge/custom_resource",
     name="custom_resource",
     description="Implement custom AWS CloudFormation resources with Python Lambda functions.",
-    long_description=open(os.path.join(ROOT, "README.rst")).read(),
+    long_description=open("README.rst").read(),
     author="Nathan Reynolds",
     author_email="email@nreynolds.co.uk",
     packages=["custom_resource"],
-    package_dir={"": os.path.join(ROOT, "src")},
+    package_dir={"": "src"},
     install_requires=[
         line.strip()
-        for line in open(os.path.join(ROOT, "requirements.txt"))
+        for line in open("requirements.txt")
         if not line.startswith("#")
         and line.strip() != ""
     ],
