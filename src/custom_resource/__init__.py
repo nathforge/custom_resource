@@ -82,17 +82,7 @@ class BaseHandler(object):
         more info.
         """
 
-    def __call__(self, event, context):
-        """
-        Lambda handler. Calls create, update or delete, sends the result back
-        to CloudFormation if not deferred.
-        """
-
-        with Responder(event) as responder:
-            response = self._get_response(event, context)
-            responder.respond(response)
-
-    def _get_response(self, event, context):
+    def dispatch(self, event, context):
         """
         Dispatch the given event to create, update or delete, depending on the
         "RequestType" value. Validates event properties against
@@ -102,8 +92,6 @@ class BaseHandler(object):
             * A string representing a PhysicalResourceId.
             * A tuple of (PhysicalResourceId, Data)
             * A Success, Failed or Defer object.
-
-        Returns the result as a Success, Failed or Defer object.
         """
 
         if self.RESOURCE_PROPERTIES_SCHEMA is not None:
@@ -117,9 +105,17 @@ class BaseHandler(object):
                 return Failed(physical_resource_id, reason=unicode(exc))
 
         event_type_handler = self._event_type_handlers[event["RequestType"]]
-        result = event_type_handler(event, context)
-        response = self._coerce_to_response(result)
-        return response
+        return event_type_handler(event, context)
+
+    def __call__(self, event, context):
+        """
+        Lambda handler. Calls create, update or delete, sends the result back
+        to CloudFormation if not deferred.
+        """
+
+        with Responder(event) as responder:
+            response = self._coerce_to_response(self.dispatch(event, context))
+            responder.respond(response)
 
     def _coerce_to_response(self, value):
         if isinstance(value, basestring):
