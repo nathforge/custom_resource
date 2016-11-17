@@ -1,10 +1,10 @@
 Custom Resource (AWS)
 =====================
 
-Implement `custom CloudFormation resources`_ with Python Lambda functions.
+Implement `custom AWS CloudFormation resources`_ with Python Lambda functions.
 
-This let you reference non-AWS resources within CloudFormation - for instance,
-let’s put a StatusCake alert in our stack:
+This helps you reference non-AWS resources within CloudFormation - for instance,
+let’s get a StatusCake alert in our stack:
 
 .. code:: yaml
 
@@ -83,7 +83,7 @@ will be passed to the ``Responder`` class, e.g:
 Using ``with``, your resource will always respond to CloudFormation even
 on exception - ensuring your stack doesn’t stall and eventually timeout.
 
-.. _custom CloudFormation resources: http://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/crpg-ref-responses.html
+.. _custom AWS CloudFormation resources: http://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/crpg-ref-responses.html
 .. _Ref function: http://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/intrinsic-function-reference-ref.html
 .. _GetAtt function: http://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/intrinsic-function-reference-getatt.html
 .. _async responses: #async-responses

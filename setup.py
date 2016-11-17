@@ -10,7 +10,7 @@ setup(
     version="0.1.7",
     url="https://github.com/nathforge/custom_resource",
     name="custom_resource",
-    description="Helps you implement custom CloudFormation resources via Python Lambda functions.",
+    description="Implement custom AWS CloudFormation resources with Python Lambda functions.",
     long_description=open(os.path.join(ROOT, "README.rst")).read(),
     author="Nathan Reynolds",
     author_email="email@nreynolds.co.uk",

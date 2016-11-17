@@ -1,5 +1,5 @@
 # End-to-end integration tests
 
-# README
+# Useful docs
 * Glossary
 * Schema validation
