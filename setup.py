@@ -2,16 +2,12 @@
 
 import os
 import os.path
-import sys
 from setuptools import setup
 
 os.chdir(os.path.abspath(os.path.dirname(__file__)))
-sys.path.insert(0, "src")
-
-import custom_resource
 
 setup(
-    version=custom_resource.__version__,
+    version="0.1.9",
     url="https://github.com/nathforge/custom_resource",
     name="custom_resource",
     description="Implement custom AWS CloudFormation resources with Python Lambda functions.",

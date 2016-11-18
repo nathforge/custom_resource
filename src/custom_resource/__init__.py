@@ -13,8 +13,6 @@ import json
 import jsonschema
 import requests
 
-__version__ = "0.1.8"
-
 SUCCESS = "SUCCESS"
 FAILED = "FAILED"
 
